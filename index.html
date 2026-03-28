@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>Weather · Axmouth &amp; London</title>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Weather"/>
+  <meta name="theme-color" content="#0d0f14"/>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;background:#0d0f14;color:#fff}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:15px;-webkit-font-smoothing:antialiased}
+    button{font-family:inherit}
+    #root{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+  </style>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+const bfLabel = b =>
+  ["Calm","Light air","Light breeze","Gentle breeze","Moderate breeze",
+   "Fresh breeze","Strong breeze","Near gale","Gale"][Math.min(b,8)];
+
+const scoreColor = s =>
+  s<=1?"#ef4444":s===2?"#f97316":s===3?"#eab308":s===4?"#22c55e":"#10b981";
+
+const tempColor = t => {
+  if(t<0)  return "#1e3a8a";
+  if(t<5)  return "#60a5fa";
+  if(t<10) return "#22c55e";
+  if(t<15) return "#eab308";
+  if(t<20) return "#f97316";
+  if(t<25) return "#f87171";
+  return "#991b1b";
+};
+
+const toMins = s => { const [h,m]=s.split(":").map(Number); return h*60+m; };
+
+const nowTemp = (day, now) => {
+  const h = now.getHours() + now.getMinutes()/60;
+  return Math.round(day.min + (day.max-day.min) *
+    Math.sin(Math.PI * Math.max(0, Math.min(h-6,16)) / 16));
+};
+
+const daylightStr = (sr, ss) => {
+  const m = toMins(ss) - toMins(sr);
+  return `${Math.floor(m/60)}h ${m%60}m`;
+};
+
+function WindArrow({dir, acc}) {
+  const deg = {N:180,NE:225,E:270,SE:315,S:0,SW:45,W:90,NW:135}[dir]||0;
+  return <span style={{display:"inline-block",transform:`rotate(${deg}deg)`,fontSize:14,color:acc}}>↑</span>;
+}
+
+// ── DATA ──────────────────────────────────────────────────────────────────────
+const MOON = [
+  {icon:"🌓",name:"First Quarter", pct:48, note:"Half-lit, sets ~midnight."},
+  {icon:"🌔",name:"Waxing Gibbous",pct:58, note:"Growing light, high by evening."},
+  {icon:"🌔",name:"Waxing Gibbous",pct:70, note:"Bright; useful for late surfers."},
+  {icon:"🌔",name:"Waxing Gibbous",pct:80, note:"Tidal ranges increasing toward full."},
+  {icon:"🌔",name:"Waxing Gibbous",pct:89, note:"Near-full. Spring tides building."},
+  {icon:"🌔",name:"Waxing Gibbous",pct:96, note:"Eve of Full Moon. Largest tidal range."},
+  {icon:"🌕",name:"Full Moon",     pct:100,note:"Full Moon. Maximum spring tides."},
+  {icon:"🌖",name:"Waning Gibbous",pct:98, note:"Just past full. Still very bright."},
+  {icon:"🌖",name:"Waning Gibbous",pct:94, note:"Waning. Rising later each evening."},
+  {icon:"🌖",name:"Waning Gibbous",pct:89, note:"Tide ranges beginning to ease."},
+];
+
+const TIDES = [
+  {events:[{t:"04:42",h:0.7,type:"LW"},{t:"10:31",h:4.1,type:"HW"},{t:"16:52",h:0.7,type:"LW"},{t:"22:52",h:4.1,type:"HW"}],range:"4.1m",tz:"GMT"},
+  {events:[{t:"05:20",h:0.6,type:"LW"},{t:"11:09",h:4.2,type:"HW"},{t:"17:32",h:0.6,type:"LW"},{t:"23:31",h:4.2,type:"HW"}],range:"4.2m",tz:"GMT"},
+  {events:[{t:"06:00",h:0.6,type:"LW"},{t:"11:48",h:4.3,type:"HW"},{t:"18:14",h:0.5,type:"LW"}],range:"4.3m",tz:"GMT"},
+  {events:[{t:"00:10",h:4.3,type:"HW"},{t:"06:42",h:0.5,type:"LW"},{t:"12:29",h:4.4,type:"HW"},{t:"18:58",h:0.5,type:"LW"}],range:"4.4m",tz:"GMT"},
+  {events:[{t:"01:26",h:4.4,type:"HW"},{t:"07:52",h:0.5,type:"LW"},{t:"14:10",h:4.5,type:"HW"},{t:"20:13",h:0.5,type:"LW"}],range:"4.5m",tz:"BST"},
+  {events:[{t:"02:15",h:4.5,type:"HW"},{t:"08:35",h:0.5,type:"LW"},{t:"14:52",h:4.5,type:"HW"},{t:"20:57",h:0.5,type:"LW"}],range:"4.5m",tz:"BST"},
+  {events:[{t:"02:57",h:4.4,type:"HW"},{t:"09:17",h:0.5,type:"LW"},{t:"15:33",h:4.4,type:"HW"},{t:"21:38",h:0.5,type:"LW"}],range:"4.4m",tz:"BST"},
+  {events:[{t:"03:38",h:4.3,type:"HW"},{t:"10:01",h:0.6,type:"LW"},{t:"16:14",h:4.3,type:"HW"},{t:"22:17",h:0.6,type:"LW"}],range:"4.3m",tz:"BST"},
+  {events:[{t:"04:18",h:4.2,type:"HW"},{t:"10:44",h:0.7,type:"LW"},{t:"16:55",h:4.2,type:"HW"},{t:"23:01",h:0.7,type:"LW"}],range:"4.2m",tz:"BST"},
+  {events:[{t:"04:59",h:4.1,type:"HW"},{t:"11:27",h:0.8,type:"LW"},{t:"17:38",h:4.1,type:"HW"}],range:"4.1m",tz:"BST"},
+];
+
+const AX = [
+  {short:"Wed",date:"25 Mar",dateNum:25,max:13,min:7, fl:10,hum:85,wind:28,gust:45,dir:"SW",bf:7, rain:70,swell:"2.1m·12s·SW",seaT:8, ti:0,mi:0,tz:"GMT",sr:"06:19",ss:"18:29",rain3h:[30,50,65,80,85,90,75,55,40],condition:"Blustery with heavy rain. Hail possible. Squally gusts."},
+  {short:"Thu",date:"26 Mar",dateNum:26,max:14,min:3, fl:9, hum:80,wind:18,gust:29,dir:"W", bf:5, rain:55,swell:"1.6m·11s·W", seaT:8, ti:1,mi:1,tz:"GMT",sr:"06:17",ss:"18:31",rain3h:[20,15,30,60,55,35,20,15,10],condition:"Overcast; light rain late morning. Winds easing."},
+  {short:"Fri",date:"27 Mar",dateNum:27,max:9, min:1, fl:5, hum:65,wind:10,gust:14,dir:"N", bf:3, rain:10,swell:"1.0m·9s·NW", seaT:8, ti:2,mi:2,tz:"GMT",sr:"06:14",ss:"18:33",rain3h:[10,5,10,10,10,10,15,20,15],condition:"Sharp and cold. Sunny spells. Hard frost overnight."},
+  {short:"Sat",date:"28 Mar",dateNum:28,max:11,min:7, fl:8, hum:68,wind:9, gust:16,dir:"NW",bf:3, rain:15,swell:"0.8m·9s·NW", seaT:8, ti:3,mi:3,tz:"GMT",sr:"06:12",ss:"18:35",rain3h:[10,10,10,10,20,25,20,15,10],condition:"Sunny spells clouding over afternoon. Chilly."},
+  {short:"Sun",date:"29 Mar",dateNum:29,max:13,min:7, fl:10,hum:68,wind:7, gust:12,dir:"NW",bf:2, rain:10,swell:"0.9m·10s·W", seaT:8, ti:4,mi:4,tz:"BST",sr:"07:10",ss:"19:37",rain3h:[5,5,5,10,10,10,15,15,10],  condition:"Sunny intervals. Light winds. Best day of week."},
+  {short:"Mon",date:"30 Mar",dateNum:30,max:15,min:8, fl:13,hum:62,wind:6, gust:10,dir:"SW",bf:2, rain:5, swell:"0.7m·8s·SW", seaT:9, ti:5,mi:5,tz:"BST",sr:"07:07",ss:"19:39",rain3h:[5,5,5,5,5,5,10,10,15],    condition:"Cloud clearing to warm sunshine. Spring feel."},
+  {short:"Tue",date:"31 Mar",dateNum:31,max:15,min:9, fl:12,hum:78,wind:13,gust:22,dir:"SW",bf:4, rain:55,swell:"1.2m·10s·SW",seaT:9, ti:6,mi:6,tz:"BST",sr:"07:05",ss:"19:41",rain3h:[10,10,15,20,30,55,70,80,85],condition:"Warm but overcast. Rain spreading by evening."},
+  {short:"Wed",date:"1 Apr", dateNum:1, max:12,min:6, fl:9, hum:75,wind:15,gust:24,dir:"SW",bf:4, rain:45,swell:"1.4m·11s·SW",seaT:9, ti:7,mi:7,tz:"BST",sr:"07:03",ss:"19:43",rain3h:[60,55,40,30,25,20,20,15,10],condition:"Full Moon. Rain clearing through morning. Brightening."},
+  {short:"Thu",date:"2 Apr", dateNum:2, max:11,min:5, fl:8, hum:70,wind:12,gust:18,dir:"W", bf:3, rain:25,swell:"1.1m·10s·W", seaT:9, ti:8,mi:8,tz:"BST",sr:"07:00",ss:"19:45",rain3h:[15,10,10,20,25,20,15,10,10],condition:"Mostly dry with sunny intervals. Feeling cool."},
+  {short:"Fri",date:"3 Apr", dateNum:3, max:12,min:4, fl:9, hum:72,wind:10,gust:15,dir:"NW",bf:3, rain:20,swell:"0.9m·9s·NW", seaT:9, ti:9,mi:9,tz:"BST",sr:"06:58",ss:"19:47",rain3h:[10,10,10,15,20,20,15,10,10],condition:"Fresh NW wind. Sunny spells. Chilly overnight frost."},
+];
+
+const LDN = [
+  {short:"Wed",date:"25 Mar",dateNum:25,max:15,min:6, fl:12,hum:78,wind:20,gust:31,dir:"SW",bf:5,rain:50,vis:"Moderate", ti:0,mi:0,tz:"GMT",sr:"06:13",ss:"18:27",rain3h:[15,10,20,25,30,55,70,60,45],condition:"Overcast. Rain band moving SE by evening."},
+  {short:"Thu",date:"26 Mar",dateNum:26,max:10,min:3, fl:5, hum:72,wind:22,gust:43,dir:"NW",bf:6,rain:80,vis:"Moderate", ti:1,mi:1,tz:"GMT",sr:"06:11",ss:"18:29",rain3h:[65,80,85,80,75,70,65,55,45],condition:"Squally showers. Hail and thunder possible. Cold."},
+  {short:"Fri",date:"27 Mar",dateNum:27,max:10,min:5, fl:7, hum:64,wind:8, gust:25,dir:"NW",bf:3,rain:10,vis:"Very Good",ti:2,mi:2,tz:"GMT",sr:"06:08",ss:"18:31",rain3h:[20,15,10,5,5,5,10,10,10],  condition:"Largely dry and bright after early showers."},
+  {short:"Sat",date:"28 Mar",dateNum:28,max:13,min:7, fl:11,hum:68,wind:10,gust:20,dir:"NW",bf:3,rain:40,vis:"Good",     ti:3,mi:3,tz:"GMT",sr:"06:06",ss:"18:33",rain3h:[30,40,45,35,20,15,20,25,20],condition:"Light rain possible morning. Drier afternoon."},
+  {short:"Sun",date:"29 Mar",dateNum:29,max:11,min:6, fl:8, hum:54,wind:8, gust:28,dir:"W", bf:3,rain:40,vis:"Good",     ti:4,mi:4,tz:"BST",sr:"07:04",ss:"19:35",rain3h:[15,10,30,45,35,25,20,20,15],condition:"Sunny intervals. Rain risk late morning."},
+  {short:"Mon",date:"30 Mar",dateNum:30,max:13,min:7, fl:9, hum:62,wind:7, gust:26,dir:"W", bf:2,rain:30,vis:"Good",     ti:5,mi:5,tz:"BST",sr:"07:01",ss:"19:37",rain3h:[20,15,15,20,25,30,35,30,25],condition:"Cloudy with sunny breaks. Dry for much of day."},
+  {short:"Tue",date:"31 Mar",dateNum:31,max:15,min:8, fl:11,hum:83,wind:4, gust:27,dir:"N", bf:2,rain:10,vis:"Very Good",ti:6,mi:6,tz:"BST",sr:"06:59",ss:"19:39",rain3h:[10,5,5,10,10,10,15,20,25],  condition:"Warmest day. Calm winds. Cloudy with sunny spells."},
+  {short:"Wed",date:"1 Apr", dateNum:1, max:12,min:5, fl:9, hum:76,wind:14,gust:22,dir:"SW",bf:4,rain:40,vis:"Moderate", ti:7,mi:7,tz:"BST",sr:"06:56",ss:"19:41",rain3h:[50,45,35,25,20,20,15,10,10],condition:"Rain clearing morning. Brightening afternoon."},
+  {short:"Thu",date:"2 Apr", dateNum:2, max:11,min:4, fl:8, hum:68,wind:11,gust:17,dir:"W", bf:3,rain:20,vis:"Good",     ti:8,mi:8,tz:"BST",sr:"06:54",ss:"19:43",rain3h:[15,10,10,15,20,20,15,10,10],condition:"Mostly dry with sunny spells. Cool."},
+  {short:"Fri",date:"3 Apr", dateNum:3, max:12,min:4, fl:9, hum:70,wind:9, gust:14,dir:"NW",bf:3,rain:15,vis:"Very Good",ti:9,mi:9,tz:"BST",sr:"06:51",ss:"19:45",rain3h:[10,10,10,10,15,15,10,10,10],condition:"Fresh and bright. Light NW wind. Chilly nights."},
+];
+
+const AX_VOCS = [
+  {key:"cycling",label:"Road Cycling", icon:"🚴",scores:[1,2,4,4,5,5,3,3,4,4]},
+  {key:"surfing", label:"Surfing",      icon:"🏄",scores:[4,3,2,2,2,2,3,3,2,2]},
+  {key:"hiking",  label:"Hiking (SWCP)",icon:"🥾",scores:[2,3,4,4,5,5,3,3,4,4]},
+];
+const LDN_VOCS = [
+  {key:"cycling",label:"Road Cycling",        icon:"🚴",scores:[2,1,4,3,3,4,5,3,4,4]},
+  {key:"surfing", label:"Surfing (Kent/Essex)",icon:"🏄",scores:[3,2,2,2,2,2,2,2,2,2]},
+  {key:"hiking",  label:"Hiking (N.Downs)",   icon:"🥾",scores:[2,2,4,4,4,5,4,3,4,4]},
+];
+
+// ── SUB-COMPONENTS ────────────────────────────────────────────────────────────
+function TideCard({tideDay, now, card, border, textMuted, textPri}) {
+  const nowM = now.getHours()*60 + now.getMinutes();
+  const evs  = tideDay.events.map(e => ({...e, mins:toMins(e.t)}));
+  let next   = evs[evs.length-1];
+  for(let i=0; i<evs.length; i++) { if(evs[i].mins > nowM) { next=evs[i]; break; } }
+  const rising = next.type === "HW";
+  const ml     = next.mins - nowM;
+  const timeToNext = ml > 0
+    ? `${Math.floor(ml/60)}h ${ml%60}m until ${rising?"high":"low"} water`
+    : `${next.type} at ${next.t}`;
+  const hw   = tideDay.events.filter(e=>e.type==="HW");
+  const lw   = tideDay.events.filter(e=>e.type==="LW");
+  const cols = Math.max(hw.length, lw.length);
+  const hdrs = ["1st","2nd","3rd"].slice(0, cols);
+  return (
+    <div style={{...card, gridColumn:"span 2"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:20}}>{rising?"🌊":"🏖️"}</span>
+          <span style={{fontSize:14,fontWeight:700,color:rising?"#22c55e":"#60a5fa"}}>{rising?"Rising":"Ebbing"}</span>
+          <span style={{fontSize:12,color:textMuted}}>{timeToNext}</span>
+        </div>
+        <div style={{fontSize:11,color:textMuted}}>Axmouth · {tideDay.tz} · {tideDay.range}</div>
+      </div>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+        <thead>
+          <tr>
+            <td style={{color:textMuted,fontSize:11,paddingBottom:6,width:80}}></td>
+            {hdrs.map((h,i) => <td key={i} style={{color:textMuted,fontSize:11,paddingBottom:6,textAlign:"center",letterSpacing:1,textTransform:"uppercase"}}>{h}</td>)}
+          </tr>
+        </thead>
+        <tbody>
+          <tr style={{borderTop:`1px solid ${border}`}}>
+            <td style={{color:"#fbbf24",fontWeight:700,padding:"7px 0",fontSize:12}}>▲ HIGH</td>
+            {hdrs.map((_,i) => (
+              <td key={i} style={{textAlign:"center",padding:"7px 0"}}>
+                {hw[i]
+                  ? <div><div style={{fontWeight:700,fontSize:15,color:textPri}}>{hw[i].t}</div><div style={{fontSize:11,color:textMuted}}>{hw[i].h}m</div></div>
+                  : <span style={{color:textMuted}}>—</span>}
+              </td>
+            ))}
+          </tr>
+          <tr style={{borderTop:`1px solid ${border}`}}>
+            <td style={{color:"#60a5fa",fontWeight:700,padding:"7px 0",fontSize:12}}>▼ LOW</td>
+            {hdrs.map((_,i) => (
+              <td key={i} style={{textAlign:"center",padding:"7px 0"}}>
+                {lw[i]
+                  ? <div><div style={{fontWeight:700,fontSize:15,color:textPri}}>{lw[i].t}</div><div style={{fontSize:11,color:textMuted}}>{lw[i].h}m</div></div>
+                  : <span style={{color:textMuted}}>—</span>}
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SunCard({day, now, city, card, border, textMuted, textPri}) {
+  const srM   = toMins(day.sr);
+  const ssM   = toMins(day.ss);
+  const nowM  = now.getHours()*60 + now.getMinutes();
+  const srPct = (srM/1440)*100;
+  const dlPct = ((ssM-srM)/1440)*100;
+  const nowPct= (nowM/1440)*100;
+  const isDay = nowM >= srM && nowM <= ssM;
+  const loc   = city==="axmouth" ? "Axmouth" : "London";
+  return (
+    <div style={{...card, gridColumn:"span 2"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:textMuted}}>
+          Daylight · {loc} · {day.short} {day.date}
+        </div>
+        <div style={{fontSize:11,color:textMuted}}>{day.tz}</div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:11,color:"#fbbf24",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>🌅 Sunrise</div>
+          <div style={{fontSize:22,fontWeight:700,color:textPri}}>{day.sr}</div>
+        </div>
+        <div style={{textAlign:"center",borderLeft:`1px solid ${border}`,borderRight:`1px solid ${border}`}}>
+          <div style={{fontSize:11,color:"#60a5fa",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>☀️ Daylight</div>
+          <div style={{fontSize:22,fontWeight:700,color:textPri}}>{daylightStr(day.sr,day.ss)}</div>
+        </div>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:11,color:"#818cf8",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>🌇 Sunset</div>
+          <div style={{fontSize:22,fontWeight:700,color:textPri}}>{day.ss}</div>
+        </div>
+      </div>
+      <div style={{position:"relative",height:20,borderRadius:6,background:"#0f172a",overflow:"hidden"}}>
+        <div style={{position:"absolute",top:0,bottom:0,left:`${srPct}%`,width:`${dlPct}%`,
+          background:"linear-gradient(90deg,#f59e0b44,#fbbf24bb,#f59e0b44)",borderRadius:4}}/>
+        <div style={{position:"absolute",top:0,bottom:0,width:2,left:`${nowPct}%`,
+          background:isDay?"#ffffff":"#475569",
+          boxShadow:isDay?"0 0 6px rgba(255,255,255,0.5)":"none"}}/>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:9,color:textMuted}}>
+        <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span>
+      </div>
+    </div>
+  );
+}
+
+function TempLineGraph({days, selIdx, setSelIdx, acc, textMuted, textPri}) {
+  const allMax = days.map(d=>d.max);
+  const lo     = Math.min(...allMax);
+  const hi     = Math.max(...allMax);
+  const range  = Math.max(hi-lo, 4);
+  const barH   = 64;
+  const yOf    = v => barH - Math.round(((v-lo)/range)*(barH-20)) - 8;
+
+  return (
+    <div style={{marginBottom:0,position:"relative"}}>
+      <div style={{fontSize:12,fontWeight:600,marginBottom:8,color:textPri,paddingLeft:90}}>
+        Temperature °C
+      </div>
+      <div style={{display:"flex",alignItems:"flex-end",height:barH+20,position:"relative"}}>
+        <div style={{width:90,flexShrink:0}}/>
+        {days.map((d,i) => {
+          const dotY = yOf(d.max);
+          const col  = tempColor(d.max);
+          return (
+            <div key={i} onClick={()=>setSelIdx(i)}
+              style={{flex:1,position:"relative",height:barH+20,cursor:"pointer"}}>
+              <div style={{
+                position:"absolute",left:"50%",top:dotY,
+                transform:"translate(-50%,-50%)",
+                width:i===selIdx?12:8,height:i===selIdx?12:8,
+                borderRadius:"50%",background:col,
+                border:i===selIdx?"2px solid #fff":"2px solid transparent",
+                boxShadow:i===selIdx?`0 0 6px ${col}`:"none",
+                zIndex:2,transition:"all .15s"
+              }}/>
+              <div style={{
+                position:"absolute",left:"50%",top:dotY-18,
+                transform:"translateX(-50%)",
+                fontSize:10,fontWeight:i===selIdx?700:400,
+                color:i===selIdx?"#fff":textMuted,
+                whiteSpace:"nowrap",zIndex:2
+              }}>{d.max}</div>
+            </div>
+          );
+        })}
+        <svg style={{position:"absolute",left:90,top:0,width:"calc(100% - 90px)",
+          height:barH+20,overflow:"visible",pointerEvents:"none"}}
+          preserveAspectRatio="none">
+          <defs>
+            {days.slice(0,-1).map((_,i) => (
+              <linearGradient key={i} id={`tg${i}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%"   stopColor={tempColor(days[i].max)}/>
+                <stop offset="100%" stopColor={tempColor(days[i+1].max)}/>
+              </linearGradient>
+            ))}
+          </defs>
+          {days.slice(0,-1).map((_,i) => {
+            const n    = days.length;
+            const colW = 100/n;
+            const x1   = `${(i+0.5)*colW}%`;
+            const x2   = `${(i+1.5)*colW}%`;
+            const y1   = yOf(days[i].max);
+            const y2   = yOf(days[i+1].max);
+            const flat = Math.abs(y1-y2) < 2;
+            return (
+              <line key={i} x1={x1} y1={y1} x2={x2} y2={y2}
+                stroke={flat ? tempColor(days[i].max) : `url(#tg${i})`}
+                strokeWidth={2.5} strokeLinecap="round"/>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// ── MAIN APP ──────────────────────────────────────────────────────────────────
+function App() {
+  const [city,   setCity]   = useState("axmouth");
+  const [selIdx, setSelIdx] = useState(0);
+  const [days,   setDays]   = useState(null);
+  const [vocs,   setVocs]   = useState(null);
+  const [now,    setNow]    = useState(new Date());
+
+  const sliceFromToday = (src) => {
+    const n = new Date().getDate();
+    const i = src.findIndex(d => d.dateNum >= n);
+    return src.slice(i>=0?i:0, i>=0?i+7:7);
+  };
+
+  useEffect(() => {
+    setDays(sliceFromToday(AX));
+    setVocs(AX_VOCS);
+    setSelIdx(0);
+    const t = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  const switchCity = k => {
+    const src = k==="axmouth" ? AX : LDN;
+    setCity(k);
+    setDays(sliceFromToday(src));
+    setVocs(k==="axmouth" ? AX_VOCS : LDN_VOCS);
+    setSelIdx(0);
+  };
+
+  if(!days || !days.length) return <div style={{background:"#0d0f14",minHeight:"100vh"}}/>;
+
+  const day     = days[selIdx];
+  const tideDay = TIDES[day.ti];
+  const moon    = MOON[day.mi];
+  const acc     = city==="axmouth" ? "#0f766e" : "#1d4ed8";
+  const bg      = "#0d0f14";
+  const surface = "#161920";
+  const border  = "rgba(255,255,255,0.28)";
+  const textPri = "#ffffff";
+  const textMuted="#c8d0db";
+  const highlight="#1e2230";
+  const card = {background:surface,border:`1px solid ${border}`,borderRadius:10,padding:"14px 16px"};
+  const lbl  = {fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:textMuted,marginBottom:6};
+
+  // Yesterday's data for 24h card
+  const todayNum = new Date().getDate();
+  const srcAll   = city==="axmouth" ? AX : LDN;
+  const yest     = srcAll.find(d => d.dateNum === todayNum-1) || null;
+
+  return (
+    <div style={{fontFamily:"'Helvetica Neue',Arial,sans-serif",background:bg,minHeight:"100vh",color:textPri,fontSize:15}}>
+
+      {/* ── HEADER ── */}
+      <div style={{background:surface,borderBottom:`1px solid ${border}`,padding:"14px 20px"}}>
+        <div style={{maxWidth:940,margin:"0 auto"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+            <div>
+              <div style={{fontSize:12,letterSpacing:2,textTransform:"uppercase",color:textMuted,marginBottom:4}}>
+                WEATHER 25 MARCH – 3 APRIL 2026
+              </div>
+              <div style={{fontSize:22,fontWeight:700,letterSpacing:-0.5}}>
+                {city==="axmouth"?"Axmouth":"London"}
+                <span style={{fontWeight:400,color:textMuted,fontSize:14,marginLeft:12}}>
+                  {city==="axmouth"?"East Devon · 50.70°N 3.05°W":"Greater London · 51.5°N 0.1°W"}
+                </span>
+              </div>
+            </div>
+            <div style={{display:"flex",background:bg,borderRadius:8,padding:3,gap:2,border:`1px solid ${border}`}}>
+              {[["axmouth","Axmouth"],["london","London"]].map(([k,l]) => (
+                <button key={k} onClick={()=>switchCity(k)} style={{
+                  background:city===k?(k==="axmouth"?"#0f766e":"#1d4ed8"):"transparent",
+                  color:"#fff",border:"none",borderRadius:6,padding:"6px 16px",
+                  fontWeight:600,fontSize:14,cursor:"pointer",transition:"all .15s"
+                }}>{l}</button>
+              ))}
+            </div>
+          </div>
+          {/* Day strip */}
+          <div style={{display:"flex",gap:6,marginTop:14,overflowX:"auto",paddingBottom:2}}>
+            {days.map((d,i) => (
+              <button key={i} onClick={()=>setSelIdx(i)} style={{
+                flex:"0 0 auto",
+                background:i===selIdx?acc:surface,
+                color:"#fff",
+                border:`2px solid ${i===selIdx?acc:border}`,
+                borderRadius:8,padding:"8px 14px",cursor:"pointer",
+                minWidth:62,transition:"all .12s"
+              }}>
+                <div style={{fontWeight:700,fontSize:13}}>{d.short}{i===0?" · Today":""}</div>
+                <div style={{fontSize:11,color:i===selIdx?"rgba(255,255,255,.7)":textMuted,marginTop:2}}>{d.date}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{maxWidth:940,margin:"0 auto",padding:"18px 16px"}}>
+
+        {/* ── METRICS GRID ── */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:14}}>
+
+          {/* Temperature */}
+          <div style={card}>
+            <div style={lbl}>Temperature</div>
+            <div style={{fontSize:44,fontWeight:700,letterSpacing:-2,lineHeight:1}}>{nowTemp(day,now)}°C</div>
+            <div style={{fontSize:11,color:textMuted,marginTop:8,display:"grid",gridTemplateColumns:"1fr 1fr",gap:"3px 10px"}}>
+              <span>↑ High <strong style={{color:textPri}}>{day.max}°C</strong></span>
+              <span>↓ Low <strong style={{color:textPri}}>{day.min}°C</strong></span>
+              <span style={{gridColumn:"span 2"}}>Feels like <strong style={{color:textPri}}>{day.fl}°C</strong></span>
+            </div>
+          </div>
+
+          {/* Wind */}
+          <div style={card}>
+            <div style={lbl}>Wind</div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+              <div>
+                <div style={{fontSize:26,fontWeight:700,letterSpacing:-0.5,lineHeight:1,display:"flex",alignItems:"center",gap:8}}>
+                  {day.wind} mph
+                  <WindArrow dir={day.dir} acc={acc}/>
+                  <span style={{fontSize:17,color:acc}}>{day.dir}</span>
+                </div>
+                <div style={{fontSize:13,color:textMuted,marginTop:5}}>Gusts {day.gust} mph</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:32,lineHeight:1}}>
+                  {day.bf<=1?"🪨":day.bf<=3?"🍃":day.bf<=5?"💨":day.bf<=7?"🌬️":"🌀"}
+                </div>
+                <div style={{fontSize:11,color:textMuted,marginTop:4}}>{bfLabel(day.bf)}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Last 24h */}
+          {yest && (
+            <div style={card}>
+              <div style={lbl}>Last 24 Hours · {city==="axmouth"?"Seaton":"London"}</div>
+              <div style={{display:"flex",gap:16,alignItems:"center",marginTop:4}}>
+                <div style={{textAlign:"center",flex:1}}>
+                  <div style={{fontSize:11,color:"#60a5fa",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>↓ Low</div>
+                  <div style={{fontSize:34,fontWeight:700,letterSpacing:-1,lineHeight:1,color:"#60a5fa"}}>
+                    {yest.min}<sup style={{fontSize:"50%",fontWeight:400}}>°C</sup>
+                  </div>
+                  <div style={{fontSize:11,color:textMuted,marginTop:3}}>{yest.short} overnight</div>
+                </div>
+                <div style={{width:"1px",background:border,alignSelf:"stretch"}}/>
+                <div style={{textAlign:"center",flex:1}}>
+                  <div style={{fontSize:11,color:"#fbbf24",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>↑ High</div>
+                  <div style={{fontSize:34,fontWeight:700,letterSpacing:-1,lineHeight:1,color:"#fbbf24"}}>
+                    {yest.max}<sup style={{fontSize:"50%",fontWeight:400}}>°C</sup>
+                  </div>
+                  <div style={{fontSize:11,color:textMuted,marginTop:3}}>{yest.short} afternoon</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Rain 3×3 */}
+          <div style={card}>
+            <div style={lbl}>Rain Risk · 27h</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:3}}>
+              {day.rain3h.slice(0,9).map((pct,i) => {
+                const s=i*3, e=s+3;
+                const bg2=pct>75?"#ef4444":pct>25?"#f59e0b":"#22c55e";
+                const tc=pct>25&&pct<=75?"#000":"#fff";
+                return (
+                  <div key={i} style={{background:bg2,borderRadius:5,padding:"6px 2px",
+                    display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2}}>
+                    <div style={{fontSize:12,fontWeight:700,color:tc,lineHeight:1}}>{pct}%</div>
+                    <div style={{fontSize:9,color:tc,opacity:0.85,textAlign:"center",lineHeight:1.2}}>
+                      {String(s).padStart(2,"0")}–{String(e).padStart(2,"0")}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Swell / Visibility */}
+          {city==="axmouth" ? (
+            <div style={card}>
+              <div style={lbl}>Axmouth Swell</div>
+              <div style={{fontSize:19,fontWeight:700,lineHeight:1.3}}>{day.swell}</div>
+              <div style={{fontSize:13,color:textMuted,marginTop:5}}>Sea temp {day.seaT}°C</div>
+            </div>
+          ) : (
+            <div style={card}>
+              <div style={lbl}>Visibility</div>
+              <div style={{fontSize:19,fontWeight:700,lineHeight:1.3}}>{day.vis}</div>
+              <div style={{fontSize:13,color:textMuted,marginTop:5}}>Humidity {day.hum}%</div>
+            </div>
+          )}
+
+          {/* Moon */}
+          <div style={card}>
+            <div style={lbl}>Moon Phase</div>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:34,lineHeight:1}}>{moon.icon}</span>
+              <div>
+                <div style={{fontSize:14,fontWeight:700,lineHeight:1.2}}>{moon.name}</div>
+                <div style={{fontSize:13,color:textMuted,marginTop:3}}>{moon.pct}% illuminated</div>
+              </div>
+            </div>
+            <div style={{fontSize:12,color:textMuted,marginTop:8,lineHeight:1.5}}>{moon.note}</div>
+          </div>
+
+          {/* Tides — Axmouth only */}
+          {city==="axmouth" && (
+            <TideCard tideDay={tideDay} now={now} card={card}
+              border={border} textMuted={textMuted} textPri={textPri}/>
+          )}
+
+          {/* Daylight */}
+          <SunCard day={day} now={now} city={city} card={card}
+            border={border} textMuted={textMuted} textPri={textPri}/>
+
+        </div>
+
+        {/* ── CONDITION ── */}
+        <div style={{...card,marginBottom:14}}>
+          <div style={lbl}>Synoptic Summary · {day.short} {day.date}</div>
+          <div style={{fontSize:15,lineHeight:1.65}}>{day.condition}</div>
+        </div>
+
+        {/* ── WEEK AT A GLANCE ── */}
+        <div style={{fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:textMuted,marginBottom:10}}>
+          Week at a Glance
+        </div>
+        <div style={{...card,marginBottom:14}}>
+          <div style={{marginBottom:16}}>
+            <TempLineGraph days={days} selIdx={selIdx} setSelIdx={setSelIdx}
+              acc={acc} textMuted={textMuted} textPri={textPri}/>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead>
+                <tr>
+                  <td style={{color:textMuted,paddingBottom:7,width:90}}></td>
+                  {days.map((d,i) => (
+                    <td key={i} onClick={()=>setSelIdx(i)} style={{
+                      textAlign:"center",paddingBottom:7,cursor:"pointer",
+                      color:i===selIdx?acc:textPri,fontWeight:i===selIdx?700:500
+                    }}>{d.short}</td>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  {label:"Gust mph",fn:d=>d.gust,     col:v=>v>=40?"#ef4444":v>=25?"#f97316":textPri},
+                  {label:"Wind dir", fn:d=>d.dir,       col:()=>textPri},
+                  {label:"Rain %",   fn:d=>d.rain+"%",  col:v=>parseInt(v)>60?"#ef4444":parseInt(v)>30?"#f97316":"#22c55e"},
+                  {label:"Humidity", fn:d=>d.hum+"%",   col:()=>textPri},
+                ].map(row => (
+                  <tr key={row.label} style={{borderTop:`1px solid ${border}`}}>
+                    <td style={{color:textMuted,padding:"6px 0",fontWeight:500}}>{row.label}</td>
+                    {days.map((d,i) => {
+                      const val = row.fn(d);
+                      return (
+                        <td key={i} style={{
+                          textAlign:"center",fontWeight:600,color:row.col(val),
+                          background:i===selIdx?highlight:undefined,padding:"6px 0"
+                        }}>{val}</td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* ── ACTIVITY HEATMAP ── */}
+        <div style={{fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:textMuted,marginBottom:10}}>
+          Activity Heatmap
+        </div>
+        <div style={{...card,marginBottom:14}}>
+          {vocs.map(v => (
+            <div key={v.key} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <div style={{width:134,fontSize:12,display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                <span>{v.icon}</span>
+                <span style={{fontWeight:600}}>{v.label.split(" ")[0]}</span>
+              </div>
+              <div style={{flex:1,display:"flex",gap:3}}>
+                {days.map((d,i) => {
+                  const origIdx = AX.findIndex(a => a.dateNum===d.dateNum);
+                  const s   = v.scores[origIdx>=0?origIdx:i] ?? 3;
+                  const col = scoreColor(s);
+                  return (
+                    <div key={i} onClick={()=>setSelIdx(i)} style={{
+                      flex:1,height:26,borderRadius:4,cursor:"pointer",
+                      background:i===selIdx?col:col+"30",
+                      border:`2px solid ${i===selIdx?col:col+"55"}`,
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      fontSize:10,fontWeight:700,color:i===selIdx?"#fff":col,transition:"all .12s"
+                    }}>{s}</div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <div style={{display:"flex",gap:3,marginLeft:142,marginTop:4}}>
+            {days.map((d,i) => (
+              <div key={i} style={{flex:1,textAlign:"center",fontSize:10,
+                color:i===selIdx?acc:textMuted}}>{d.short}</div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── FOOTER ── */}
+        <div style={{fontSize:11,color:textMuted,lineHeight:1.8,borderTop:`1px solid ${border}`,paddingTop:14}}>
+          <div style={{marginBottom:4}}>
+            <strong style={{color:textPri}}>Weather sources:</strong> Met Office UK · The Weather Outlook
+            (GFS/ECMWF) · world-weather.info · Windy.app · surf-forecast.com · Surfline ·
+            weather-forecast.com · Swellinfo (Exmouth)
+          </div>
+          <div style={{marginBottom:4}}>
+            <strong style={{color:textPri}}>Tide data:</strong> devon-tides.com · Lyme Regis standard port ·
+            BST from 29 Mar · Projected from 20–21 Mar actuals
+          </div>
+          <div style={{marginBottom:4}}>
+            <strong style={{color:textPri}}>Sunrise/sunset:</strong> timeanddate.com (East Devon / London) ·
+            BST applied from 29 Mar
+          </div>
+          <div>
+            ⚠ Tide times are indicative only — not for navigation. Activity indices are interpretive.
+            Forecast confidence decreases beyond 5 days. Current temperature estimated from diurnal
+            interpolation. Yesterday's 24h figures are forecast min/max, not observed station data.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
