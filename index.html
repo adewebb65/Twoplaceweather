@@ -330,14 +330,9 @@ function StationView({card,lbl,border,textMuted,textPri,cityAcc}){
   const SHARE_URL = "https://www.ecowitt.net/home/share?authorize=143JUR";
   return (
     <div>
-      <div style={{...card,marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
-        <div>
-          <div style={lbl}>Live Readings · Axmouth Home Station</div>
-          <div style={{fontSize:13,color:textMuted,marginTop:2}}>Ecowitt personal weather station · auto-updates every minute</div>
-        </div>
+      <div style={{textAlign:"right",marginBottom:6}}>
         <a href={SHARE_URL} target="_blank" rel="noreferrer" style={{
-          color:cityAcc,fontSize:12,textDecoration:"none",
-          border:`1px solid ${cityAcc}`,padding:"5px 14px",borderRadius:6,flexShrink:0,fontWeight:600
+          color:textMuted,fontSize:11,textDecoration:"none"
         }}>Open full page ↗</a>
       </div>
       {iframeError?(
