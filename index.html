@@ -324,6 +324,46 @@ function TempGraph({days,selIdx,setSelIdx,textMuted,textPri}){
   );
 }
 
+// ── STATION VIEW ──────────────────────────────────────────────────────────────
+function StationView({card,lbl,border,textMuted,textPri,cityAcc}){
+  const [iframeError, setIframeError] = useState(false);
+  const SHARE_URL = "https://www.ecowitt.net/home/share?authorize=143JUR";
+  return (
+    <div>
+      <div style={{...card,marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+        <div>
+          <div style={lbl}>Live Readings · Axmouth Home Station</div>
+          <div style={{fontSize:13,color:textMuted,marginTop:2}}>Ecowitt personal weather station · auto-updates every minute</div>
+        </div>
+        <a href={SHARE_URL} target="_blank" rel="noreferrer" style={{
+          color:cityAcc,fontSize:12,textDecoration:"none",
+          border:`1px solid ${cityAcc}`,padding:"5px 14px",borderRadius:6,flexShrink:0,fontWeight:600
+        }}>Open full page ↗</a>
+      </div>
+      {iframeError?(
+        <div style={{...card,textAlign:"center",padding:"60px 20px"}}>
+          <div style={{fontSize:32,marginBottom:16}}>🌡</div>
+          <div style={{fontSize:15,fontWeight:600,marginBottom:8,color:textPri}}>Station page cannot be embedded</div>
+          <div style={{fontSize:13,color:textMuted,marginBottom:20}}>Ecowitt blocks iframe embedding. Open the live page directly instead.</div>
+          <a href={SHARE_URL} target="_blank" rel="noreferrer" style={{
+            background:cityAcc,color:"#fff",textDecoration:"none",
+            padding:"10px 24px",borderRadius:8,fontWeight:600,fontSize:14
+          }}>View Live Station Data ↗</a>
+        </div>
+      ):(
+        <div style={{...card,padding:0,overflow:"hidden",borderRadius:10}}>
+          <iframe
+            src={SHARE_URL}
+            style={{width:"100%",height:"82vh",border:"none",display:"block"}}
+            title="Home Weather Station"
+            onError={()=>setIframeError(true)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
 function App(){
   const [city,    setCity]    = useState("axmouth");
@@ -336,6 +376,7 @@ function App(){
   const [now,     setNow]     = useState(new Date());
 
   const load = useCallback(async (c)=>{
+    if(c==="station"){setLoading(false);setError(null);return;}
     setLoading(true); setError(null);
     try {
       const [wx, marine] = await Promise.all([
@@ -359,7 +400,7 @@ function App(){
 
   const acc="#0f766e", bg="#0d0f14", surface="#161920", border="rgba(255,255,255,0.28)";
   const textPri="#ffffff", textMuted="#c8d0db", highlight="#1e2230";
-  const cityAcc = city==="axmouth"?"#0f766e":"#1d4ed8";
+  const cityAcc = city==="axmouth"?"#0f766e":city==="london"?"#1d4ed8":"#b45309";
   const card={background:surface,border:`1px solid ${border}`,borderRadius:10,padding:"14px 16px"};
   const lbl={fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:textMuted,marginBottom:6};
   const day=forecast[selIdx]||null;
@@ -374,19 +415,20 @@ function App(){
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
             <div>
               <div style={{fontSize:12,letterSpacing:2,textTransform:"uppercase",color:textMuted,marginBottom:4}}>
-                LIVE WEATHER FORECAST
-                {updated&&<span style={{marginLeft:8,fontSize:10,opacity:0.6}}>
+                {city==="station"?"LIVE STATION DATA":"LIVE WEATHER FORECAST"}
+                {updated&&city!=="station"&&<span style={{marginLeft:8,fontSize:10,opacity:0.6}}>
                   · Updated {updated.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}
                 </span>}
               </div>
               <div style={{fontSize:22,fontWeight:700,letterSpacing:-0.5}}>
-                {LOCS[city].name}
-                <span style={{fontWeight:400,color:textMuted,fontSize:14,marginLeft:12}}>{LOCS[city].region}</span>
+                {city==="station"?"Home Weather Station":LOCS[city].name}
+                {city!=="station"&&<span style={{fontWeight:400,color:textMuted,fontSize:14,marginLeft:12}}>{LOCS[city].region}</span>}
+                {city==="station"&&<span style={{fontWeight:400,color:textMuted,fontSize:14,marginLeft:12}}>Axmouth · Ecowitt personal station</span>}
               </div>
             </div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
               <div style={{display:"flex",background:bg,borderRadius:8,padding:3,gap:2,border:`1px solid ${border}`}}>
-                {[["axmouth","Axmouth"],["london","London"]].map(([k,l])=>(
+                {[["axmouth","Axmouth"],["london","London"],["station","🌡 Station"]].map(([k,l])=>(
                   <button key={k} onClick={()=>switchCity(k)} style={{
                     background:city===k?cityAcc:"transparent",color:"#fff",border:"none",
                     borderRadius:6,padding:"6px 16px",fontWeight:600,fontSize:14,cursor:"pointer",transition:"all .15s"
@@ -399,7 +441,7 @@ function App(){
               }}>↻ Refresh</button>
             </div>
           </div>
-          {!loading&&forecast.length>0&&(
+          {!loading&&forecast.length>0&&city!=="station"&&(
             <div style={{display:"flex",gap:6,marginTop:14,overflowX:"auto",paddingBottom:2}}>
               {forecast.map((d,i)=>(
                 <button key={i} onClick={()=>setSelIdx(i)} style={{
@@ -432,7 +474,11 @@ function App(){
           </div>
         )}
 
-        {!loading&&!error&&day&&(
+        {city==="station"&&(
+          <StationView card={card} lbl={lbl} border={border} textMuted={textMuted} textPri={textPri} cityAcc={cityAcc}/>
+        )}
+
+        {!loading&&!error&&day&&city!=="station"&&(
           <>
             {/* METRICS GRID */}
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:14}}>
