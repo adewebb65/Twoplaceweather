@@ -287,7 +287,7 @@ function TempGraph({days,selIdx,setSelIdx,textMuted,textPri}){
   const barH=64, yOf=v=>barH-Math.round(((v-lo)/range)*(barH-20))-8;
   return (
     <div style={{position:"relative",marginBottom:0}}>
-      <div style={{fontSize:12,fontWeight:600,marginBottom:8,color:textPri,paddingLeft:90}}>Temperature °C</div>
+
       <div style={{display:"flex",alignItems:"flex-end",height:barH+20,position:"relative"}}>
         <div style={{width:90,flexShrink:0}}/>
         {days.map((d,i)=>{
@@ -476,6 +476,39 @@ function App(){
 
         {!loading&&!error&&day&&city!=="station"&&(
           <>
+            {/* WEEK AT A GLANCE */}
+            <div style={{...card,marginBottom:14}}>
+              <div style={{marginBottom:16}}>
+                <TempGraph days={forecast} selIdx={selIdx} setSelIdx={setSelIdx} textMuted={textMuted} textPri={textPri}/>
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead><tr>
+                    <td style={{color:textMuted,paddingBottom:7,width:90}}></td>
+                    {forecast.map((d,i)=>(
+                      <td key={i} onClick={()=>setSelIdx(i)} style={{textAlign:"center",paddingBottom:7,cursor:"pointer",color:i===selIdx?cityAcc:textPri,fontWeight:i===selIdx?700:500}}>{d.short}</td>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {[
+                      {label:"Gust mph",fn:d=>d.gust,     col:v=>v>=40?"#ef4444":v>=25?"#f97316":textPri},
+                      {label:"Wind dir", fn:d=>d.dir,       col:()=>textPri},
+                      {label:"Rain %",   fn:d=>d.rain+"%",  col:v=>parseInt(v)>60?"#ef4444":parseInt(v)>30?"#f97316":"#22c55e"},
+                      {label:"Humidity", fn:d=>d.hum+"%",   col:()=>textPri},
+                    ].map(row=>(
+                      <tr key={row.label} style={{borderTop:`1px solid ${border}`}}>
+                        <td style={{color:textMuted,padding:"6px 0",fontWeight:500}}>{row.label}</td>
+                        {forecast.map((d,i)=>{
+                          const val=row.fn(d);
+                          return <td key={i} style={{textAlign:"center",fontWeight:600,color:row.col(val),background:i===selIdx?highlight:undefined,padding:"6px 0"}}>{val}</td>;
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
             {/* METRICS GRID */}
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:14}}>
 
@@ -574,41 +607,6 @@ function App(){
               <div style={lbl}>Synoptic Summary · {day.short} {day.date}</div>
               <div style={{fontSize:15,lineHeight:1.65}}>{day.condition}</div>
             </div>
-
-            {/* WEEK AT A GLANCE */}
-            <div style={{fontSize:11,letterSpacing:1.5,textTransform:"uppercase",color:textMuted,marginBottom:10}}>Week at a Glance</div>
-            <div style={{...card,marginBottom:14}}>
-              <div style={{marginBottom:16}}>
-                <TempGraph days={forecast} selIdx={selIdx} setSelIdx={setSelIdx} textMuted={textMuted} textPri={textPri}/>
-              </div>
-              <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                  <thead><tr>
-                    <td style={{color:textMuted,paddingBottom:7,width:90}}></td>
-                    {forecast.map((d,i)=>(
-                      <td key={i} onClick={()=>setSelIdx(i)} style={{textAlign:"center",paddingBottom:7,cursor:"pointer",color:i===selIdx?cityAcc:textPri,fontWeight:i===selIdx?700:500}}>{d.short}</td>
-                    ))}
-                  </tr></thead>
-                  <tbody>
-                    {[
-                      {label:"Gust mph",fn:d=>d.gust,     col:v=>v>=40?"#ef4444":v>=25?"#f97316":textPri},
-                      {label:"Wind dir", fn:d=>d.dir,       col:()=>textPri},
-                      {label:"Rain %",   fn:d=>d.rain+"%",  col:v=>parseInt(v)>60?"#ef4444":parseInt(v)>30?"#f97316":"#22c55e"},
-                      {label:"Humidity", fn:d=>d.hum+"%",   col:()=>textPri},
-                    ].map(row=>(
-                      <tr key={row.label} style={{borderTop:`1px solid ${border}`}}>
-                        <td style={{color:textMuted,padding:"6px 0",fontWeight:500}}>{row.label}</td>
-                        {forecast.map((d,i)=>{
-                          const val=row.fn(d);
-                          return <td key={i} style={{textAlign:"center",fontWeight:600,color:row.col(val),background:i===selIdx?highlight:undefined,padding:"6px 0"}}>{val}</td>;
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
 
           </>
         )}
