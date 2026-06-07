@@ -70,37 +70,42 @@ const moonPhase = date => {
   return                 {icon:"🌘",name:"Waning Crescent",pct,note:"Low light. Tidal ranges easing."};
 };
 
-// ── TIDAL MODEL (Lyme Regis harmonic constituents) ────────────────────────────
-// Spring HW reference: 29 Mar 2026 00:26 UTC ≈ 4.5m
-// M2 (principal lunar semidiurnal): A=1.45m, T=12.4206h
-// S2 (principal solar semidiurnal):  A=0.60m, T=12.0000h
-// Z0 (mean sea level above chart datum): 2.85m
-const TIDE_REF = new Date('2026-03-29T00:26:00Z').getTime();
-const Z0=2.85, AM2=1.45, AS2=0.60, WM2=2*Math.PI/12.4206, WS2=2*Math.PI/12.0;
-const tideH = t => Z0+AM2*Math.cos(WM2*(t-TIDE_REF)/3600000)+AS2*Math.cos(WS2*(t-TIDE_REF)/3600000);
+// ── TIDES (ADMIRALTY UK Tidal API – Discovery, free tier) ─────────────────────
+// Seaton has no dedicated UKHO gauge. Lyme Regis (station 0028) is the nearest
+// standard port — same side of Lyme Bay, ~10 km east, same tidal regime.
+const TIDE_STATION_ID  = '0028';            // Lyme Regis
+const TIDE_STATION_LBL = 'Lyme Regis';
+const ADMIRALTY_KEY    = '6103a7384fad4c438604def687ef26f9';
 
-const isBST = d => d.getTime()>=new Date('2026-03-29T01:00:00Z').getTime() && d.getTime()<new Date('2026-10-25T01:00:00Z').getTime();
+const isBST = d => {
+  const y = d.getUTCFullYear();
+  // Last Sunday of March / October at 01:00 UTC
+  const lastSunday = m => { const x=new Date(Date.UTC(y,m+1,0,1,0,0)); x.setUTCDate(x.getUTCDate()-x.getUTCDay()); return x.getTime(); };
+  return d.getTime()>=lastSunday(2) && d.getTime()<lastSunday(9);
+};
 
-const computeTides = dateStr => {
-  const dayUTC  = new Date(dateStr+'T00:00:00Z').getTime();
-  const bst     = isBST(new Date(dateStr+'T12:00:00Z'));
-  const tzMs    = bst ? 3600000 : 0;
-  const targetD = new Date(dateStr+'T12:00:00Z').getUTCDate();
-  const events  = [];
-  const STEP    = 6*60000; // 6 min
-  let p2=tideH(dayUTC), p1=tideH(dayUTC+STEP);
-  for(let i=2;i<=270;i++){
-    const tUTC=dayUTC+i*STEP;
-    const curr=tideH(tUTC);
-    const tLoc=new Date(tUTC+tzMs);
-    if(tLoc.getUTCDate()===targetD){
-      const hh=String(tLoc.getUTCHours()).padStart(2,'0'), mm=String(tLoc.getUTCMinutes()).padStart(2,'0');
-      if(p1>p2&&p1>curr) events.push({t:`${hh}:${mm}`,h:Math.round(p1*10)/10,type:"HW"});
-      if(p1<p2&&p1<curr) events.push({t:`${hh}:${mm}`,h:Math.max(0.1,Math.round(p1*10)/10),type:"LW"});
+const fetchTides = async () => {
+  try {
+    const r = await fetch(
+      `https://admiraltyapi.azure-api.net/uktidalapi/api/V1/Stations/${TIDE_STATION_ID}/TidalEvents?duration=7`,
+      { headers: { 'Ocp-Apim-Subscription-Key': ADMIRALTY_KEY } }
+    );
+    if(!r.ok) return null;
+    const events = await r.json();
+    // Group by local date string (DateTime is already local time, no tz suffix).
+    const byDate = {};
+    for(const e of events){
+      const ds = e.DateTime.slice(0,10);
+      const hh = e.DateTime.slice(11,13), mm = e.DateTime.slice(14,16);
+      (byDate[ds] = byDate[ds] || []).push({
+        t: `${hh}:${mm}`,
+        h: Math.round(e.Height*10)/10,
+        type: e.EventType === 'HighWater' ? 'HW' : 'LW',
+      });
     }
-    p2=p1; p1=curr;
-  }
-  return events.sort((a,b)=>toMins(a.t)-toMins(b.t));
+    for(const ds in byDate) byDate[ds].sort((a,b)=>toMins(a.t)-toMins(b.t));
+    return byDate;
+  } catch(e){ return null; }
 };
 
 // ── ACTIVITY SCORES ───────────────────────────────────────────────────────────
@@ -147,7 +152,7 @@ const fetchMarine = async () => {
   return r.json();
 };
 
-const parseResponse = (wx,marine,city) => {
+const parseResponse = (wx,marine,tides,city) => {
   const {daily,hourly}=wx;
   const _n=new Date(); const todayStr=`${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,'0')}-${String(_n.getDate()).padStart(2,'0')}`;
   const todayI=daily.time.findIndex(t=>t===todayStr);
@@ -182,7 +187,7 @@ const parseResponse = (wx,marine,city) => {
       vis:wmoVis(daily.weathercode[i]||0), seaT:9,
       tz:isBST(dt)?"BST":"GMT", sr, ss,
       condition:wmoText(daily.weathercode[i]||0,windMph),
-      tideEvents:city==="axmouth"?computeTides(ds):[],
+      tideEvents:city==="axmouth"?(tides&&tides[ds]?tides[ds]:[]):[],
       moon:moonPhase(dt),
     };
     d.scores={cycling:score("cycling",city,d),surfing:score("surfing",city,d),hiking:score("hiking",city,d)};
@@ -219,7 +224,7 @@ function TideCard({day,now,card,border,textMuted,textPri}){
           <span style={{fontSize:14,fontWeight:700,color:rising?"#22c55e":"#60a5fa"}}>{rising?"Rising":"Ebbing"}</span>
           <span style={{fontSize:12,color:textMuted}}>{tnx}</span>
         </div>
-        <div style={{fontSize:11,color:textMuted}}>Axmouth · {day.tz} · Lyme Regis port</div>
+        <div style={{fontSize:11,color:textMuted}}>Seaton · {day.tz} · nearest gauge: {TIDE_STATION_LBL}</div>
       </div>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
         <thead><tr>
@@ -374,11 +379,12 @@ function App(){
     if(c==="station"){setLoading(false);setError(null);return;}
     setLoading(true); setError(null);
     try {
-      const [wx, marine] = await Promise.all([
+      const [wx, marine, tides] = await Promise.all([
         fetchWeather(c),
         c==="axmouth"?fetchMarine():Promise.resolve(null),
+        c==="axmouth"?fetchTides():Promise.resolve(null),
       ]);
-      const {forecast:fc,yesterday} = parseResponse(wx,marine,c);
+      const {forecast:fc,yesterday} = parseResponse(wx,marine,tides,c);
       if(!fc||fc.length===0){setError('No forecast data returned. The date may be outside the available range.');return;} setForecast(fc); setYest(yesterday); setSelIdx(0); setUpdated(new Date());
     } catch(e){ setError("Could not load live data. Check your connection."); }
     finally{ setLoading(false); }
